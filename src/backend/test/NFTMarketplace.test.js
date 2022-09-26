@@ -1,7 +1,7 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const toWei = (num) => ethers.utils.parseEther(num.toString())
-// const fromWei = (num) => ethers.utils.formatEther(num)
+const fromWei = (num) => ethers.utils.formatEther(num)
 
 describe("NFTMarketplace", function () {
     
@@ -78,4 +78,60 @@ describe("NFTMarketplace", function () {
           });
     })
 
+    describe("Purchasing marketplace items", function () {
+        let price = 2
+        let fee = (feePercent/100)*price
+        beforeEach(async function() {
+            // addr1 mints an nft
+            await nft.connect(addr1).mint(URI);
+            // marketplace is allowed by addr1 to spend the nft
+            await nft.connect(addr1).setApprovalForAll(marketplace.address, true);
+            // addr1 makes its nft a marketplace item
+            await marketplace.connect(addr1).makeItem(nft.address, 1, toWei(2));
+        })
+
+        it.only("should update items as sold, should pay seller, transfer nft to buyer, charge fees and emit a Bought event", async function() {
+            const sellerInitBal = await addr1.getBalance();
+            const feeAccountInitBal = await deployer.getBalance();
+            console.warn('sellerInitBal', sellerInitBal);
+            console.warn('feeAccountInitBal', feeAccountInitBal);
+            let totalPriceInWei = await marketplace.getTotalPrice(1);
+            console.warn('totalPriceInWei', totalPriceInWei);
+            // let addr2 purchase an item
+            await expect(marketplace.connect(addr2).purchaseItem(1, { value: totalPriceInWei }))
+                .to.emit(marketplace, "Bought")
+                .withArgs(
+                    1,
+                    nft.address,
+                    1,
+                    toWei(price),
+                    addr1.address,
+                    addr2.address
+                )
+            
+                const sellerFinalBalance = await addr1.getBalance();
+                const feeAccountFinalBalance = await deployer.getBalance();
+
+                expect((await marketplace.items(1)).sold).to.equal(true);
+
+                // Seller should receive payment for the nft she sold
+                expect(+fromWei(sellerFinalBalance)).to.equal(+price + +fromWei(sellerInitBal))
+                // feeAccount should receive fee
+                expect(+fromWei(feeAccountFinalBalance)).to.equal(+price + +fromWei(feeAccountInitBal))
+                // // the buyer should now own the nft
+                // expect(await nft.ownerOf(1)).to.equal(addr2.address)
+            })
+
+        it("should fail for invalid item ids, sold items and when not enough eth is paid", async function() {
+            let totalPriceInWei = await marketplace.getTotalPrice(1);
+            // fail for invalid item ids
+            // await expect(marketplace.connect(addr2).purchaseItem(2, { value: totalPriceInWei})).to.be.revertedWith("item does not exist");
+            // await expect(marketplace.connect(addr2).purchaseItem(0, { value: totalPriceInWei})).to.be.revertedWith("item does not exist");
+
+            // await expect(marketplace.connect(addr2).purchaseItem(1, { value: totalPriceInWei})).to.be.revertedWith("not enough eth to pay item price and market fee together");
+            await marketplace.connect(addr2).purchaseItem(1, {value: totalPriceInWei})
+            const addr3 = addrs[0]
+            await expect(marketplace.connect(addr3).purchaseItem(1, {value: totalPriceInWei})).to.be.revertedWith("this item already sold!");
+        })
+    })
 })
